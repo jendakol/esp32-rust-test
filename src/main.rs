@@ -1,9 +1,79 @@
-use esp_idf_sys as _; // If using the `binstart` feature of `esp-idf-sys`, always keep this module imported
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc;
+use std::thread;
 
-fn main() {
-    // Temporary. Will disappear once ESP-IDF 4.4 is released, but for now it is necessary to call this function once,
-    // or else some patches to the runtime implemented by esp-idf-sys might not link properly.
-    esp_idf_sys::link_patches();
+use anyhow::Result;
+use ds1307::{DateTimeAccess, Ds1307, NaiveDate};
+use esp_idf_hal::i2c;
+use esp_idf_hal::i2c::config::MasterConfig;
+use esp_idf_hal::prelude::*;
+use esp_idf_sys as _;
 
-    println!("Hello, world!");
+static NTHREADS: i32 = 3;
+
+fn main() -> Result<()> {
+    // Bind the log crate to the ESP Logging facilities
+    esp_idf_svc::log::EspLogger::initialize_default();
+
+    println!("Start!");
+
+    // Channels have two endpoints: the `Sender<T>` and the `Receiver<T>`,
+    // where `T` is the type of the message to be transferred
+    // (type annotation is superfluous)
+    let (tx, rx): (Sender<i32>, Receiver<i32>) = mpsc::channel();
+    let mut children = Vec::new();
+
+    for id in 0..NTHREADS {
+        // The sender endpoint can be copied
+        let thread_tx = tx.clone();
+
+        // Each thread will send its id via the channel
+        let child = thread::spawn(move || {
+            // The thread takes ownership over `thread_tx`
+            // Each thread queues a message in the channel
+            thread_tx.send(id).unwrap();
+
+            // Sending is a non-blocking operation, the thread will continue
+            // immediately after sending its message
+            println!("thread {} finished", id);
+        });
+
+        children.push(child);
+    }
+
+    // Here, all the messages are collected
+    let mut ids = Vec::with_capacity(NTHREADS as usize);
+    for _ in 0..NTHREADS {
+        // The `recv` method picks a message from the channel
+        // `recv` will block the current thread if there are no messages available
+        ids.push(rx.recv());
+    }
+
+    // Wait for the threads to complete any remaining work
+    for child in children {
+        child.join().expect("oops! the child thread panicked");
+    }
+
+    // Show the order in which the messages were sent
+    println!("{:?}", ids);
+
+    let peripherals = Peripherals::take().unwrap();
+
+    let config = MasterConfig::new().baudrate(400.kHz().into());
+
+    let i2c = i2c::Master::new(
+        peripherals.i2c0,
+        i2c::MasterPins { sda: peripherals.pins.gpio21, scl: peripherals.pins.gpio22 },
+        config,
+    )?;
+
+    let mut rtc = Ds1307::new(i2c);
+    let datetime = NaiveDate::from_ymd(2020, 5, 2).and_hms(19, 59, 58);
+    rtc.set_datetime(&datetime).unwrap();
+    // ...
+    let datetime = rtc.datetime().unwrap();
+    println!("{}", datetime);
+
+    Ok(())
 }
+
