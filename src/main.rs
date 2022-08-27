@@ -1,8 +1,8 @@
-use std::sync::mpsc::{Receiver, Sender};
 use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ds1307::{DateTimeAccess, Ds1307, NaiveDate};
 use esp_idf_hal::i2c;
 use esp_idf_hal::i2c::config::MasterConfig;
@@ -57,23 +57,30 @@ fn main() -> Result<()> {
     // Show the order in which the messages were sent
     println!("{:?}", ids);
 
-    let peripherals = Peripherals::take().unwrap();
+    let peripherals = Peripherals::take().context("Could not initialize peripherals!")?;
 
     let config = MasterConfig::new().baudrate(400.kHz().into());
 
     let i2c = i2c::Master::new(
         peripherals.i2c0,
-        i2c::MasterPins { sda: peripherals.pins.gpio21, scl: peripherals.pins.gpio22 },
+        i2c::MasterPins {
+            sda: peripherals.pins.gpio21,
+            scl: peripherals.pins.gpio22,
+        },
         config,
-    )?;
+    )
+    .context("Could not initialize I2C!")?;
 
-    let mut rtc = Ds1307::new(i2c);
-    let datetime = NaiveDate::from_ymd(2020, 5, 2).and_hms(19, 59, 58);
-    rtc.set_datetime(&datetime).unwrap();
-    // ...
-    let datetime = rtc.datetime().unwrap();
-    println!("{}", datetime);
+    let t = thread::spawn(|| {
+        let mut rtc = Ds1307::new(i2c);
+        let datetime = NaiveDate::from_ymd(2020, 5, 2).and_hms(19, 59, 58);
+        rtc.set_datetime(&datetime).unwrap();
+        // ...
+        let datetime = rtc.datetime().unwrap();
+        println!("{}", datetime);
+    });
+
+    t.join().map_err(|_| anyhow::Error::msg("Cannot join the thread!"))?;
 
     Ok(())
 }
-
