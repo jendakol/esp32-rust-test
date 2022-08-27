@@ -17,10 +17,12 @@ pio = ["esp-idf-sys/pio"]
 
 [dependencies]
 anyhow = "*"
+embedded-hal = "~0.2"
 esp-idf-hal = "0.38.1"
 esp-idf-svc = "0.42.3"
 esp-idf-sys = { version = "0.31.6", features = ["binstart"] }
 ds1307 = "0.4.0"
+shared-bus = { version = "~0.2", features = ["std"] }
 
 [build-dependencies]
 embuild = "0.30.3"

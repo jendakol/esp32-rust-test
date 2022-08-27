@@ -4,12 +4,15 @@ use std::thread;
 
 use anyhow::{Context, Result};
 use ds1307::{DateTimeAccess, Ds1307, NaiveDate};
-use esp_idf_hal::i2c;
-use esp_idf_hal::i2c::config::MasterConfig;
 use esp_idf_hal::prelude::*;
 use esp_idf_sys as _;
 
+// use crate::peripherals::{SimplePeripherals, I2C};
+use crate::peripherals::SimplePeripherals;
+
 static NTHREADS: i32 = 3;
+
+mod peripherals;
 
 fn main() -> Result<()> {
     // Bind the log crate to the ESP Logging facilities
@@ -59,20 +62,10 @@ fn main() -> Result<()> {
 
     let peripherals = Peripherals::take().context("Could not initialize peripherals!")?;
 
-    let config = MasterConfig::new().baudrate(400.kHz().into());
+    let peripherals = SimplePeripherals::try_from(peripherals)?;
 
-    let i2c = i2c::Master::new(
-        peripherals.i2c0,
-        i2c::MasterPins {
-            sda: peripherals.pins.gpio21,
-            scl: peripherals.pins.gpio22,
-        },
-        config,
-    )
-    .context("Could not initialize I2C!")?;
-
-    let t = thread::spawn(|| {
-        let mut rtc = Ds1307::new(i2c);
+    let t = thread::spawn(move || {
+        let mut rtc = Ds1307::new(peripherals.i2c());
         let datetime = NaiveDate::from_ymd(2020, 5, 2).and_hms(19, 59, 58);
         rtc.set_datetime(&datetime).unwrap();
         // ...
